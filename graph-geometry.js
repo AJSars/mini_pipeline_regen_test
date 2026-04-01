@@ -240,6 +240,203 @@
       }
     }
 
+    /** Map node id → layer index from current `layers`. */
+    function layerMapFromLayers(layers, maxL) {
+      const m = new Map();
+      for (let L = 0; L <= maxL; L++) {
+        for (const id of layers[L]) {
+          m.set(id, L);
+        }
+      }
+      return m;
+    }
+
+    /**
+     * Group processes that share a file with multi fan-in into contiguous blocks (process layers).
+     */
+    function clusterProcessesBySharedFile(layers, maxL) {
+      for (let L = 0; L <= maxL; L++) {
+        const layer = layers[L];
+        if (!layer.length || !isProcess(layer[0])) continue;
+
+        const forwardFiles = (pid) =>
+          (adj.get(pid) || []).filter((nid) => !isProcess(nid));
+
+        const countByFile = new Map();
+        for (const p of layer) {
+          for (const f of forwardFiles(p)) {
+            countByFile.set(f, (countByFile.get(f) || 0) + 1);
+          }
+        }
+        const multiFiles = new Set(
+          [...countByFile.entries()].filter(([, c]) => c >= 2).map(([f]) => f)
+        );
+        if (multiFiles.size === 0) continue;
+
+        const primaryFile = (p) => {
+          const fs = forwardFiles(p)
+            .filter((f) => multiFiles.has(f))
+            .sort(lexCmp);
+          return fs.length ? fs[0] : null;
+        };
+
+        const byPrimary = new Map();
+        const solo = [];
+        for (const p of layer) {
+          const pr = primaryFile(p);
+          if (pr == null) {
+            solo.push(p);
+            continue;
+          }
+          if (!byPrimary.has(pr)) byPrimary.set(pr, []);
+          byPrimary.get(pr).push(p);
+        }
+        for (const arr of byPrimary.values()) {
+          arr.sort(lexCmp);
+        }
+        const grouped = [...byPrimary.keys()].sort(lexCmp).flatMap((f) => byPrimary.get(f));
+        solo.sort(lexCmp);
+        layers[L] = [...grouped, ...solo];
+      }
+    }
+
+    /**
+     * Symmetric: group files that share a process with multi fan-out into contiguous blocks (file layers).
+     */
+    function clusterFilesBySharedProcess(layers, maxL) {
+      for (let L = 0; L <= maxL; L++) {
+        const layer = layers[L];
+        if (!layer.length || isProcess(layer[0])) continue;
+
+        const forwardProcs = (fid) =>
+          (adj.get(fid) || []).filter((nid) => isProcess(nid));
+
+        const countByProc = new Map();
+        for (const f of layer) {
+          for (const p of forwardProcs(f)) {
+            countByProc.set(p, (countByProc.get(p) || 0) + 1);
+          }
+        }
+        const multiProcs = new Set(
+          [...countByProc.entries()].filter(([, c]) => c >= 2).map(([p]) => p)
+        );
+        if (multiProcs.size === 0) continue;
+
+        const primaryProc = (f) => {
+          const ps = forwardProcs(f)
+            .filter((p) => multiProcs.has(p))
+            .sort(lexCmp);
+          return ps.length ? ps[0] : null;
+        };
+
+        const byPrimary = new Map();
+        const solo = [];
+        for (const f of layer) {
+          const pr = primaryProc(f);
+          if (pr == null) {
+            solo.push(f);
+            continue;
+          }
+          if (!byPrimary.has(pr)) byPrimary.set(pr, []);
+          byPrimary.get(pr).push(f);
+        }
+        for (const arr of byPrimary.values()) {
+          arr.sort(lexCmp);
+        }
+        const grouped = [...byPrimary.keys()].sort(lexCmp).flatMap((p) => byPrimary.get(p));
+        solo.sort(lexCmp);
+        layers[L] = [...grouped, ...solo];
+      }
+    }
+
+    /**
+     * Place `block` ids in consecutive slots starting at `bestStart`; other nodes keep relative order.
+     */
+    function embedBlock(layerNodes, blockIds, bestStart) {
+      const block = [...new Set(blockIds)].sort(lexCmp);
+      const k = block.length;
+      const n = layerNodes.length;
+      if (k === 0 || k > n || bestStart < 0 || bestStart > n - k) {
+        return layerNodes.slice();
+      }
+      const set = new Set(block);
+      const rest = layerNodes.filter((id) => !set.has(id));
+      if (rest.length !== n - k) {
+        return layerNodes.slice();
+      }
+      const out = new Array(n);
+      let r = 0;
+      for (let pos = 0; pos < n; pos++) {
+        if (pos >= bestStart && pos < bestStart + k) {
+          out[pos] = block[pos - bestStart];
+        } else {
+          out[pos] = rest[r++];
+        }
+      }
+      return out;
+    }
+
+    /**
+     * SPEC §7 shared-link heuristics: hub N with ≥2 immediate opposite-side neighbors in the same layer.
+     * k===2 → horizontal arrangement (consecutive rows straddling hub row).
+     * k>=3 → vertical arrangement (consecutive block centered on hub).
+     * Symmetric for Process hub and File hub.
+     */
+    function applySharedHubRowHeuristics(layers, maxL, compSet) {
+      const m = layerMapFromLayers(layers, maxL);
+
+      const candidates = [];
+      for (const nid of compSet) {
+        const Lh = m.get(nid);
+        if (Lh == null) continue;
+        const byLu = new Map();
+        for (const v of adj.get(nid) || []) {
+          if (!compSet.has(v)) continue;
+          const Lv = m.get(v);
+          if (Lv + 1 !== Lh && Lh + 1 !== Lv) continue;
+          if (!byLu.has(Lv)) byLu.set(Lv, []);
+          byLu.get(Lv).push(v);
+        }
+        for (const ids of byLu.values()) {
+          if (ids.length < 2) continue;
+          ids.sort(lexCmp);
+          const Lu = m.get(ids[0]);
+          if (!ids.every((id) => m.get(id) === Lu)) continue;
+          candidates.push({ hub: nid, Lu, ids: ids.slice() });
+        }
+      }
+
+      candidates.sort((a, b) => b.ids.length - a.ids.length || lexCmp(a.hub, b.hub));
+
+      for (const { hub, Lu, ids } of candidates) {
+        const block = ids;
+        const k = block.length;
+        const Lh = m.get(hub);
+        const layerHub = layers[Lh];
+        const layerU = layers[Lu];
+        if (!layerHub || !layerU) continue;
+        const rhub = layerHub.indexOf(hub);
+        if (rhub < 0) continue;
+        if (!block.every((id) => layerU.includes(id))) continue;
+
+        let bestStart;
+        if (k === 2) {
+          bestStart = Math.min(Math.max(0, rhub - 1), layerU.length - k);
+        } else {
+          let targetMid = rhub;
+          if (isProcess(hub) && !isProcess(block[0])) {
+            targetMid = rhub + (NODE_R - FILE_H / 2) / ROW_H;
+          } else if (!isProcess(hub) && isProcess(block[0])) {
+            targetMid = rhub + (FILE_H / 2 - NODE_R) / ROW_H;
+          }
+          bestStart = Math.round(targetMid - (k - 1) / 2);
+          bestStart = Math.max(0, Math.min(bestStart, layerU.length - k));
+        }
+
+        layers[Lu] = embedBlock(layerU, block, bestStart);
+      }
+    }
+
     function placeConnected(comp) {
       const compSet = new Set(comp);
       const procIds = comp.filter(isProcess).sort(lexCmp);
@@ -250,6 +447,9 @@
 
       const { layers, maxL } = bfsLayers(seed, compSet);
       refineLayers(layers);
+      clusterProcessesBySharedFile(layers, maxL);
+      clusterFilesBySharedProcess(layers, maxL);
+      applySharedHubRowHeuristics(layers, maxL, compSet);
 
       let maxRows = 0;
       for (let layerIndex = 0; layerIndex <= maxL; layerIndex++) {

@@ -106,6 +106,30 @@ let userAdjusted = false;
 
 let dragState = null;
 
+/** True while Space is held (navigation mode); pans view on drag without moving nodes. */
+let spaceNavHeld = false;
+
+/**
+ * Active Space+drag pan session (so we can tear down on Space keyup, blur, or pointer end). §5.4 SPEC.
+ * @type {null | { svg: SVGSVGElement, pointerId: number, onMove: (ev: PointerEvent) => void, onEnd: (ev: PointerEvent) => void }}
+ */
+let spacePanActive = null;
+
+function stopSpacePanGesture() {
+  if (!spacePanActive) return;
+  const { svg, pointerId, onMove, onEnd } = spacePanActive;
+  window.removeEventListener('pointermove', onMove);
+  window.removeEventListener('pointerup', onEnd);
+  window.removeEventListener('pointercancel', onEnd);
+  try {
+    svg.releasePointerCapture(pointerId);
+  } catch {
+    /* already released */
+  }
+  svg.classList.remove('nav-panning');
+  spacePanActive = null;
+}
+
 const els = {
   newProcessLabel: document.getElementById('new-process-label'),
   newFileLabel: document.getElementById('new-file-label'),
@@ -647,6 +671,45 @@ function attachGraphPointerHandlers() {
     const t = e.target;
     if (!(t instanceof Element)) return;
 
+    if (spaceNavHeld && e.button === 0) {
+      e.preventDefault();
+      userAdjusted = true;
+      const pan = {
+        pointerId: e.pointerId,
+        lastClientX: e.clientX,
+        lastClientY: e.clientY,
+      };
+      svg.setPointerCapture(e.pointerId);
+      svg.classList.add('nav-panning');
+
+      const onPanMove = (ev) => {
+        if (!spaceNavHeld || ev.pointerId !== pan.pointerId) return;
+        const r2 = svg.getBoundingClientRect();
+        if (r2.width <= 0 || r2.height <= 0) return;
+        const dx = ev.clientX - pan.lastClientX;
+        const dy = ev.clientY - pan.lastClientY;
+        pan.lastClientX = ev.clientX;
+        pan.lastClientY = ev.clientY;
+        viewBox = {
+          ...viewBox,
+          x: viewBox.x - (dx * viewBox.w) / r2.width,
+          y: viewBox.y - (dy * viewBox.h) / r2.height,
+        };
+        renderSvg();
+      };
+
+      const onPanEnd = (ev) => {
+        if (ev.pointerId !== pan.pointerId) return;
+        stopSpacePanGesture();
+      };
+
+      spacePanActive = { svg, pointerId: pan.pointerId, onMove: onPanMove, onEnd: onPanEnd };
+      window.addEventListener('pointermove', onPanMove);
+      window.addEventListener('pointerup', onPanEnd);
+      window.addEventListener('pointercancel', onPanEnd);
+      return;
+    }
+
     if (t.dataset.canvasBg === 'true' || t === svg) {
       selection = null;
       setStatus('');
@@ -758,11 +821,27 @@ function attachGraphPointerHandlers() {
 }
 
 function onKeyDown(e) {
+  if (e.code === 'Space' && !e.repeat) {
+    if (!isTextEntryTarget(e.target)) {
+      e.preventDefault();
+      spaceNavHeld = true;
+      els.svg.classList.add('nav-mode-space');
+    }
+    return;
+  }
   if (e.key !== 'Delete' && e.key !== 'Backspace') return;
   if (isTextEntryTarget(e.target)) return;
   if (!selection) return;
   e.preventDefault();
   deleteSelection();
+}
+
+function onKeyUp(e) {
+  if (e.code !== 'Space') return;
+  spaceNavHeld = false;
+  stopSpacePanGesture();
+  els.svg.classList.remove('nav-mode-space');
+  els.svg.classList.remove('nav-panning');
 }
 
 els.btnAddProcess.addEventListener('click', onAddProcess);
@@ -823,6 +902,13 @@ els.btnResetZoom.addEventListener('click', () => {
 els.btnCleanup.addEventListener('click', onCleanup);
 
 document.addEventListener('keydown', onKeyDown);
+document.addEventListener('keyup', onKeyUp);
+window.addEventListener('blur', () => {
+  spaceNavHeld = false;
+  stopSpacePanGesture();
+  els.svg.classList.remove('nav-mode-space');
+  els.svg.classList.remove('nav-panning');
+});
 
 attachGraphPointerHandlers();
 

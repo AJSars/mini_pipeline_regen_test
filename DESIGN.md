@@ -1,6 +1,6 @@
 # Mini Pipeline Diagram Maker — design document
 
-This document describes **architecture**, **rendering strategy**, and **session state** at a high level, plus information architecture and visual design. **All normative behavior and acceptance tests** are in **`SPEC.md`** (especially **§4 JSON**, **§5–9** mechanics, and **§10 Scenarios S-001–S-034**).
+This document describes **architecture**, **rendering strategy**, and **session state** at a high level, plus information architecture and visual design. **All normative behavior and acceptance tests** are in **`SPEC.md`** (especially **§4 JSON**, **§5–9** mechanics, and **§10 Scenarios S-001–S-040**).
 
 ---
 
@@ -135,7 +135,8 @@ Concrete colors, radii, typography, and focus rings live in **`styles.css`** (CS
 - **Toolbar / main controls:** mutate **diagram** and **I/O** only; no direct SVG manipulation except through state + re-render.  
 - **Graph controls:** **Reset zoom** (viewport only), **Cleanup** (positions only, validated first).  
 - **Pointer:** `mousedown` on node starts **window-level** move/up listeners so drag continues outside the SVG.  
-- **Keyboard:** global **Delete**/**Backspace** guarded so typing in fields is not treated as graph delete (**SPEC** §9).
+- **Keyboard:** global **Delete**/**Backspace** guarded so typing in fields is not treated as graph delete (**SPEC** §9).  
+- **Navigation mode:** **Space** held (when not typing) switches the canvas to **viewport pan** on drag; releasing Space returns to **normal node drag**. Normative rules and scenarios: **SPEC** §5.4, §9, **S-035**, **S-036**.
 
 ---
 
@@ -202,6 +203,8 @@ These mirror **SPEC** §10 but name **architectural** expectations. Detailed **G
 | **D-003** | **Bootstrap contract:** Geometry global must exist before module app (S-032). |
 | **D-004** | **State rollback:** Failed load does not partially apply (S-022). |
 | **D-005** | **Persistence boundary:** Only `bipartite-rules` + `export-v2` interpret JSON schema (S-020–S-028). |
+| **D-006** | **Viewport vs document:** Space+drag adjusts `viewBox` only; position maps are immutable for that gesture (S-035). |
+| **D-007** | **Cleanup heuristics:** Positions only; graph arrays untouched. BFS **column** `x` fixed (**S-037**). Simple shared-link hub: **2** opposite neighbors → **horizontal arrangement**; **≥3** → **vertical arrangement**; symmetric for Process or File hub (**SPEC** §7, **S-038–S-040**). |
 
 ---
 

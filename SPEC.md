@@ -7,7 +7,7 @@ This document is **self-contained** for **behavior**: every rule needed to reimp
 1. Read **§1–3** for the model and coordinate system.  
 2. Use **§4 (JSON)** as the single source of truth for file format, including **stored positions** (`x`, `y`).  
 3. Use **§5–9** for algorithms and viewport math.  
-4. Use **§10** as the **acceptance-test catalog** (**S-001** through **S-034**): each **Scenario** is an explicit **Given / When / Then** check a regenerated app should satisfy.
+4. Use **§10** as the **acceptance-test catalog** (**S-001** through **S-040**): each **Scenario** is an explicit **Given / When / Then** check a regenerated app should satisfy.
 
 **Glossary**
 
@@ -16,11 +16,13 @@ This document is **self-contained** for **behavior**: every rule needed to reimp
 | **Process** | Node kind; drawn as a circle. Stored in array `processes`. |
 | **File** | Node kind; drawn as a rounded rectangle. Stored in `files`. |
 | **Link** | Edge from one Process to one File; never same-kind endpoints. |
+| **Opposite-side neighbor** | For a Process, any linked File (and vice versa): the **other** endpoint of an incident link. |
 | **Diagram data** | `processes`, `files`, `links` only (no positions). |
 | **Position maps** | `posProcess[id] → {x,y}`, `posFile[id] → {x,y}` in SVG user units. |
 | **Selection** | At most one of: process, file, or link, or none. |
 | **Viewport** | SVG `viewBox` rectangle `(x, y, width, height)`. |
-| **userAdjusted** | Flag: if true, viewport was changed by user zoom; auto-fit is suspended until reset. |
+| **userAdjusted** | Flag: if true, viewport was changed by user zoom **or** Space+drag pan; auto-fit is suspended until reset. |
+| **navigation mode** | While **Space** is held (and not typing in a text-entry control), pointer drag on the canvas pans the **viewport** only; nodes are not dragged. |
 
 ---
 
@@ -283,6 +285,15 @@ Output object matching §4.2 with:
   - `minW = max(60, cw * 0.04)`, `maxW = max(minW + 1, cw * 10)`  
   - Same for height with `ch`.
 
+### 5.4 Space + drag pan (navigation mode)
+
+- **Activation:** While the user **holds** the **Space** key and focus is **not** in a text-entry control (same notion as §9 for Delete/Backspace), the graph is in **navigation mode**.  
+- **Pan:** With Space held, **primary-button pointer drag** on the SVG (including starting the drag on a node, link hit target, or background) **only** translates `viewBox` in user space; **`posProcess` / `posFile` must not change** during or after the gesture for that reason.  
+- **No node drag:** In navigation mode, pointer drag **must not** start or continue a node move.  
+- **Release Space:** When Space is **released**, navigation mode ends; **normal editing** applies again (node drag per §9, selection unchanged unless another action occurs).  
+- **userAdjusted:** Beginning a Space+drag pan sets `userAdjusted = true` (same family as §5.3 wheel zoom) so auto-fit stays suspended until **Reset zoom**.  
+- **keyup / blur:** If Space is released or the window loses focus, navigation mode must end (no stuck navigation state).
+
 ---
 
 ## 6. New entities (toolbar)
@@ -313,12 +324,37 @@ Output object matching §4.2 with:
 
 **Must not** mutate `processes` / `files` / `links` **array contents** or list membership. **Only** returns new position maps.
 
+**Acceptance criteria (shared-link structures, explicit):**
+
+| Requirement | Statement |
+|-------------|-----------|
+| **Graph data** | Cleanup **must preserve** diagram data: `processes`, `files`, and `links` are **unchanged** in membership and fields. **Only** position maps (`posProcess`, `posFile`) may change (see **S-015**). |
+| **Exactly 2 neighbors** | For a **simple shared-link** pattern where hub **N** (Process or File) has **exactly two** opposite-side neighbors in the **immediate layered** configuration (§7 table below), Cleanup **must prefer a horizontal arrangement**: those two neighbors sit in a **compact horizontal band** with **N** on the canvas—on the `ROW_H` grid, **minimise** the row gap between them and keep them **near** **N**’s row (see **S-039**). |
+| **3 or more neighbors** | For the same pattern with **three or more** opposite-side neighbors, Cleanup **must prefer a vertical arrangement**: those neighbors form a **vertical stack** (consecutive `rowIndex` in their layer), centered on **N**’s row where practical (see **S-038**). |
+| **Symmetry** | Both rules apply **identically** whether **N** is a **Process** or a **File**; only **opposite-side** degree and layered adjacency matter (see **S-040**). |
+| **Layer flow** | Left-to-right **BFS columns** are **preserved**: `x = PAD + layerIndex * GAP_X` for every node (see **S-037**). |
+
+**Illustrative example (File hub):** Suppose **one File F** is linked to **two** Processes **P1** and **P2** in a simple shared-link configuration (same BFS layer for **P1** and **P2**, immediate neighbors of **F**). Cleanup **should prefer** **P1** and **P2** to sit **side-by-side horizontally** relative to **F**—i.e. in the **same vertical band** as **F** (minimal row gap between **P1** and **P2**, both **near** **F**’s row on the `ROW_H` grid), rather than strung far apart vertically. If **three** Processes **P1**, **P2**, **P3** link to the **same** **F** in that configuration, Cleanup **should prefer** **P1…P3** to **stack vertically** relative to **F** (consecutive rows in the Process layer, block centered on **F**’s row where practical). The **symmetric** case (one **Process** with two or three linked **Files**) is the same rule with roles swapped.
+
 **Steps (summary):**
 
 1. Build undirected adjacency: Process ↔ File for each valid link.  
 2. **Connected components** over all Process and File ids that appear in the diagram.  
 3. For each component **without** any internal link: Processes in column `x = PAD`, Files in column `x = PAD + GAP_X`, rows spaced by `ROW_H`, lexicographic order within kind, advance vertical `yOffset`.  
 4. For each component **with** a link: seed = smallest Process id in component, else smallest File id; **BFS** distances → **layers**; **barycenter** refinement for **2** outer iterations (forward layer sweeps + backward sweeps using neighbor **median** index, tie-break by id); assign `x = PAD + layerIndex * GAP_X`, `y = PAD + yOffset + rowIndex * ROW_H`; advance `yOffset`.
+
+**Layer columns (normative, left-to-right):** The **layerIndex** from BFS (step 4) fixes each node’s **column**: `x = PAD + layerIndex * GAP_X`. Cleanup **must not** assign a node to a different layer/column than this rule. All further rules adjust **rowIndex** (and thus `y = PAD + yOffset + rowIndex * ROW_H`) **only** within each layer.
+
+**Shared-link alignment (row-only heuristics):** Let **N** be any Process or File. Let **d** be the number of its **opposite-side neighbors** (incident links). Apply **when** those neighbors lie in the **same** BFS layer and are **immediate** neighbors of **N** in the layered sense (`layer(N) + 1 = layer(neighbor)` **or** `layer(neighbor) + 1 = layer(N)`), or the analogous pattern for the relevant side of **N** in the component. This is the **simple shared-link** subgraph those acceptance rows refer to.
+
+| Condition | Preferred layout (relative to **N**, where practical) |
+|-----------|------------------------------------------------------|
+| **d = 2** | **Horizontal arrangement:** the two opposite-side neighbors should sit in a **narrow vertical band** with **N**—i.e. minimise `|row(U1) - row(U2)|` on the `ROW_H` grid (ideally **consecutive** row indices, since two distinct nodes in one layer cannot share the same slot) and keep both rows **close** to **N**’s row so the trio reads as one horizontal band on the canvas rather than a tall vertical spread. |
+| **d ≥ 3** | **Vertical arrangement:** the **d** opposite-side neighbors should occupy **consecutive** `rowIndex` values in their layer (a vertical column of slots), with the block **centered** on **N**’s row within integer row snapping (same intent as a compact fan). |
+
+**Crossings and proximity (normative intent):** Cleanup **must** continue to **minimise edge crossings** overall (barycenter passes remain the baseline). Row heuristics **must not** be applied in a way that **increases crossings markedly** versus skipping the heuristic for that subgraph; when a trade-off is unavoidable, **prefer fewer crossings**. **Connected** opposite-side pairs should stay **visually close** (small geometric distance where the `ROW_H` grid allows).
+
+**Data:** Cleanup affects **positions only**; **graph data** (`processes`, `files`, `links`) **must remain unchanged** (see S-015 and the acceptance table above).
 
 **Before Cleanup in the UI:** run the same structural validation as load. If it fails, show error and **do not** change positions.
 
@@ -346,12 +382,29 @@ Output object matching §4.2 with:
 | Link pickers | Leading option `—` with empty value; repopulate on sync; restore previous selection if ids still exist |
 | Delete / Backspace | Delete selection only if **not** in a text-entry control: `textarea`, `select`, `input` except `button`/`submit`/`reset`/`checkbox`/`radio`/`file`, or `contentEditable` |
 | Drag | `mousedown` on node hit: `preventDefault`, select, track `mousemove`/`mouseup` on **window**; move by SVG delta |
+| Space + drag (navigation mode) | While Space is held (not typing per §9), pointer drag on the SVG pans `viewBox` only; **must not** update `posProcess`/`posFile`. Releasing Space ends navigation mode and restores normal node drag. Sets `userAdjusted` true (§5.4). |
 
 ---
 
 ## 10. Acceptance scenarios (Given / When / Then)
 
 Each scenario is independent unless **Depends on** references another id. A regenerated implementation **must** satisfy all scenarios.
+
+### Explicit criteria (summary)
+
+| Topic | Acceptance |
+|-------|------------|
+| **Space + pan** | Holding **Space** and **dragging** changes **only** the viewport (`viewBox`); **node position maps stay identical** for the duration of the gesture. Dragging **must not** move Processes or Files while Space is held. |
+| **Space release** | Releasing **Space** ends **navigation mode**; subsequent pointer drag on a node behaves as normal **node drag** (§9, S-012). |
+| **Cleanup layout** | **Preserve graph data; positions only:** `processes` / `files` / `links` unchanged; only `posProcess` / `posFile` may change (**S-015**). **Left-to-right:** BFS column `x = PAD + layerIndex * GAP_X` for every node (**S-037**). **Simple shared-link hub N** (immediate layered opposite-side neighbors, §7): **exactly 2** → prefer **horizontal arrangement**; **3 or more** → prefer **vertical arrangement**; **same rule** whether **N** is a Process or a File (**S-038–S-040**). **Crossings** stay low vs barycenter baseline (§7). |
+
+**Cleanup — bullet summary (acceptance):**
+
+1. **Graph data preserved:** Cleanup never adds, removes, or edits `processes`, `files`, or `links`; it **only** returns new `posProcess` / `posFile` (**S-015**).  
+2. **Exactly two** connected items on the opposite side of a hub **N** (simple shared-link pattern, §7): prefer a **horizontal arrangement** (tight row gap, near **N**’s row) — **S-039**. *Example:* two Processes linked to one File → prefer those Processes **side-by-side horizontally** relative to that File.  
+3. **Three or more** connected items on the opposite side of **N** in that pattern: prefer a **vertical arrangement** (consecutive rows, centered on **N** where practical) — **S-038**. *Example:* three Processes linked to one File → prefer them **stacked vertically** relative to that File.  
+4. **Symmetry:** Rules (2) and (3) apply whether **N** is a **Process** or a **File** — **S-040**.  
+5. **Layered flow:** Columns stay **left-to-right** per BFS `layerIndex` — **S-037**.
 
 ### Scenario index
 
@@ -391,6 +444,12 @@ Each scenario is independent unless **Depends on** references another id. A rege
 | **S-032** | Missing `MPDMGeometry` before app module → fail fast |
 | **S-033** | Export empty diagram yields valid empty v2 JSON |
 | **S-034** | Reject duplicate Process `id` inside `processes` |
+| **S-035** | Space+drag pans viewport only — node positions unchanged |
+| **S-036** | Releasing Space restores normal node drag |
+| **S-037** | Cleanup preserves BFS layer columns (left-to-right `x`) |
+| **S-038** | Cleanup **vertical arrangement** for **≥3** opposite-side neighbors (shared hub) |
+| **S-039** | Cleanup **horizontal arrangement** for **exactly 2** opposite-side neighbors (shared hub) |
+| **S-040** | Cleanup arrangement rules **symmetric** for Process-hub and File-hub |
 
 ---
 
@@ -631,6 +690,51 @@ Each scenario is independent unless **Depends on** references another id. A rege
 
 ---
 
+**Scenario S-035 — Space+drag pan does not move nodes**  
+**Given** a non-empty diagram; record a snapshot of `posProcess` and `posFile`.  
+**When** the user holds **Space** (not in a text-entry control), performs a **primary-button drag** on the SVG (including starting on a Process or File), then releases the pointer.  
+**Then** after the gesture, `posProcess` and `posFile` are **unchanged** from the snapshot (pan affected **only** `viewBox`); `userAdjusted` is **true**.
+
+---
+
+**Scenario S-036 — Releasing Space restores normal editing**  
+**Given** a diagram with at least one Process **P**; Space is **not** held.  
+**When** the user drags **P** with the pointer (normal node drag, §9).  
+**Then** `posProcess[P.id]` updates per the drag delta (same class of behavior as S-012).  
+**Given** Space is held (navigation mode).  
+**When** the user attempts the same drag on **P**.  
+**Then** `posProcess[P.id]` does **not** change during that gesture (viewport-only pan per §5.4).
+
+---
+
+**Scenario S-037 — Cleanup preserves left-to-right layered columns**  
+**Given** a connected component laid out by **Cleanup** after a successful run.  
+**When** positions are compared to BFS layers from the **same** seed rule as §7 step 4 (smallest Process id in component, else smallest File id).  
+**Then** every Process and File has `x = PAD + layerIndex * GAP_X` for its BFS `layerIndex`; no node appears in a different column than that rule.
+
+---
+
+**Scenario S-038 — Cleanup prefers vertical arrangement for three or more opposite neighbors**  
+**Given** a valid diagram where some hub **N** (Process or File) has **three or more** opposite-side neighbors **U1…Ud** (**d ≥ 3**) in a **simple shared-link** configuration: all **Ui** lie in the **same** BFS layer and are **immediate** neighbors of **N** (`layer(Ui) + 1 = layer(N)` **or** `layer(N) + 1 = layer(Ui)` for each **Ui**).  
+**When** the user runs **Cleanup**.  
+**Then** Cleanup **prefers a vertical arrangement**: **U1…Ud** occupy **consecutive** `rowIndex` slots in their layer (vertical stack per §7), with the block **centered** on **N**’s row within integer row snapping **where practical**, without a large increase in edge crossings versus a barycenter-only ordering for that component. **`processes` / `files` / `links` are unchanged**; only positions may differ (**S-015**).
+
+---
+
+**Scenario S-039 — Cleanup prefers horizontal arrangement for exactly two opposite neighbors**  
+**Given** a valid diagram where hub **N** (Process or File) has **exactly two** opposite-side neighbors **U1** and **U2** in the **same** simple shared-link configuration as S-038 (co-layer, immediate layered adjacency to **N**).  
+**When** the user runs **Cleanup**.  
+**Then** Cleanup **prefers a horizontal arrangement**: **U1** and **U2** are placed so **|row(U1) − row(U2)|** is **as small as the grid allows** (ideally **1**, i.e. consecutive rows in their layer, since two nodes cannot occupy the same `rowIndex`), and both rows lie **near** **N**’s row—so the subgraph reads as a **compact horizontal band** rather than a tall vertical separation. **`processes` / `files` / `links` are unchanged**; only positions may differ (**S-015**).
+
+---
+
+**Scenario S-040 — Symmetry: Process hub and File hub**  
+**Given** the explicit acceptance criteria for simple shared-link structures (§7 acceptance table).  
+**When** the hub **N** is a **Process** with two or more linked **Files**, or **N** is a **File** with two or more linked **Processes**, and the S-038/S-039 layered pattern applies.  
+**Then** the **same** rules apply: **exactly two** opposite-side neighbors → **horizontal arrangement** preference (S-039); **three or more** → **vertical arrangement** preference (S-038). **Graph data** is never modified by Cleanup (**S-015**); **no** extra rule depends on whether **N** is a Process or a File beyond opposite-side counting.
+
+---
+
 ## 11. Reference implementation hooks
 
-Repository tests (`npm test`) cover helpers for geometry, validation, export, and view fit; they align with this spec. Scenario **S-001–S-034** are the **human-readable acceptance layer** for a full UI rewrite.
+Repository tests (`npm test`) cover helpers for geometry, validation, export, and view fit; they align with this spec. Scenario **S-001–S-040** are the **human-readable acceptance layer** for a full UI rewrite.

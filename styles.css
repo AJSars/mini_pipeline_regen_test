@@ -187,6 +187,14 @@ button:disabled {
   touch-action: none;
 }
 
+#graph-svg.nav-mode-space {
+  cursor: grab;
+}
+
+#graph-svg.nav-mode-space.nav-panning {
+  cursor: grabbing;
+}
+
 .canvas-hint {
   margin: 0;
   font-size: 0.8rem;
