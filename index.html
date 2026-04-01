@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Pipeline Diagram Maker</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Mini Pipeline Diagram Maker</h1>
+      <p class="tagline">
+        Bipartite Process ↔ File diagrams. Edits stay in your browser until you export JSON.
+      </p>
+    </header>
+
+    <section class="main-controls" data-testid="main-controls" aria-label="Main controls">
+      <div class="control-row">
+        <label class="field">
+          <span class="field-label">New Process label</span>
+          <input type="text" id="new-process-label" autocomplete="off" />
+        </label>
+        <button type="button" id="btn-add-process">Add Process</button>
+      </div>
+      <div class="control-row">
+        <label class="field">
+          <span class="field-label">New File label</span>
+          <input type="text" id="new-file-label" autocomplete="off" />
+        </label>
+        <button type="button" id="btn-add-file">Add File</button>
+      </div>
+      <div class="control-row link-row">
+        <label class="field">
+          <span class="field-label">Process</span>
+          <select id="link-process" aria-label="Link process"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">File</span>
+          <select id="link-file" aria-label="Link file"></select>
+        </label>
+        <button type="button" id="btn-add-link">Add link</button>
+      </div>
+      <div class="control-row actions-row">
+        <button type="button" id="btn-delete-selection" disabled>Delete selection</button>
+        <button type="button" id="btn-load">Load JSON…</button>
+        <input type="file" id="file-load" accept="application/json,.json" hidden />
+        <button type="button" id="btn-save">Save / Export JSON…</button>
+        <button type="button" id="btn-load-sample">Load sample</button>
+      </div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <div class="workspace">
+      <div class="canvas-column">
+        <div class="graph-controls" data-testid="graph-controls" aria-label="Graph">
+          <span class="graph-controls-label">Graph</span>
+          <button type="button" id="btn-reset-zoom">Reset zoom</button>
+          <button type="button" id="btn-cleanup">Cleanup</button>
+        </div>
+        <div class="svg-card">
+          <svg
+            id="graph-svg"
+            xmlns="http://www.w3.org/2000/svg"
+            role="img"
+            aria-label="Pipeline diagram canvas"
+          ></svg>
+        </div>
+        <p class="canvas-hint">
+          Drag nodes to reposition. Ctrl + scroll to zoom. Click the background to clear selection.
+        </p>
+      </div>
+      <aside class="inspector" aria-label="Inspector">
+        <h2>Inspector</h2>
+        <div id="inspector-body" class="inspector-body"></div>
+      </aside>
+    </div>
+
+    <script src="graph-geometry.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

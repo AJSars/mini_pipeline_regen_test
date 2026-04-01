@@ -1,0 +1,129 @@
+{
+  "version": 2,
+  "processes": [
+    {
+      "id": "ingest",
+      "label": "Raw ingest",
+      "detail": "Landing zone",
+      "x": 394.28509521484375,
+      "y": 139.91705322265625
+    },
+    {
+      "id": "clean",
+      "label": "Clean & validate",
+      "detail": "Schema checks",
+      "x": 48,
+      "y": 48
+    },
+    {
+      "id": "features",
+      "label": "Feature build",
+      "detail": "Derived columns",
+      "x": 539.4722900390625,
+      "y": 40.22078323364258
+    },
+    {
+      "id": "train",
+      "label": "Train model",
+      "detail": "Offline job",
+      "x": 914.8977661132812,
+      "y": 41.96402359008789
+    },
+    {
+      "id": "report",
+      "label": "Report",
+      "detail": "Summary artifact",
+      "x": 1207.0872802734375,
+      "y": 45.75349044799805
+    }
+  ],
+  "files": [
+    {
+      "id": "f-events",
+      "label": "events.jsonl",
+      "detail": "",
+      "x": 228.50845336914062,
+      "y": 141.45252990722656
+    },
+    {
+      "id": "f-feat",
+      "label": "features.parquet",
+      "detail": "",
+      "x": 225.23471069335938,
+      "y": 46.363128662109375
+    },
+    {
+      "id": "f-train",
+      "label": "training_set.parquet",
+      "detail": "",
+      "x": 719.6753540039062,
+      "y": 47.17519187927246
+    },
+    {
+      "id": "f-out",
+      "label": "model.pkl + metrics.json",
+      "detail": "",
+      "x": 1021.718505859375,
+      "y": 44.178245544433594
+    },
+    {
+      "id": "file-lruzo3l",
+      "label": "My Asset",
+      "detail": "",
+      "x": 507.68182373046875,
+      "y": 141.41104125976562
+    }
+  ],
+  "links": [
+    {
+      "id": "link-0-ingest-f-events",
+      "processId": "ingest",
+      "fileId": "f-events"
+    },
+    {
+      "id": "link-1-clean-f-events",
+      "processId": "clean",
+      "fileId": "f-events"
+    },
+    {
+      "id": "link-2-clean-f-feat",
+      "processId": "clean",
+      "fileId": "f-feat"
+    },
+    {
+      "id": "link-3-features-f-feat",
+      "processId": "features",
+      "fileId": "f-feat"
+    },
+    {
+      "id": "link-4-features-f-train",
+      "processId": "features",
+      "fileId": "f-train"
+    },
+    {
+      "id": "link-5-train-f-train",
+      "processId": "train",
+      "fileId": "f-train"
+    },
+    {
+      "id": "link-6-train-f-out",
+      "processId": "train",
+      "fileId": "f-out"
+    },
+    {
+      "id": "link-7-report-f-out",
+      "processId": "report",
+      "fileId": "f-out"
+    },
+    {
+      "id": "link-bcq594f",
+      "processId": "ingest",
+      "fileId": "file-lruzo3l"
+    },
+    {
+      "id": "link-zfbneye",
+      "processId": "features",
+      "fileId": "file-lruzo3l"
+    }
+  ]
+}
